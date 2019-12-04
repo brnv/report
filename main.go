@@ -18,7 +18,7 @@ var (
 const usage = `report
 
 Usage:
-    report --issuer-id --key-id --vendor-id --date [options]
+    report --date <date> [options]
     report -h | --help
 
 Options:
@@ -27,7 +27,8 @@ Options:
     --vendor-id <string>  Vendor ID from App Store Connect.
     --date <date>         Report date in YYYY-MM-DD format.
     --auth-key <path>     Path to private key.
-                           [default: ./auth_key.p8].
+    --config <path>       Path to configuration file.
+                           [default: config.toml]
     --debug               Enable debug output.
     --trace               Enable trace output.
     -h --help             Show this help.
@@ -46,12 +47,48 @@ func main() {
 		logger.SetLevel(lorg.LevelTrace)
 	}
 
-	key, err := getAuthKey(args["--auth-key"].(string))
+	config, err := loadConfig(args["--config"].(string))
 	if err != nil {
 		logger.Fatal(err)
 	}
 
-	token := getToken(args["--issuer-id"].(string), args["--key-id"].(string))
+	var (
+		keyPath  = config.KeyPath
+		issuerID = config.IssuerID
+		keyID    = config.KeyID
+		vendorID = config.VendorID
+	)
+
+	if args["--auth-key"] != nil {
+		keyPath = args["--auth-key"].(string)
+	}
+
+	if args["--issuer-id"] != nil {
+		issuerID = args["--issuer-id"].(string)
+	}
+
+	if args["--key-id"] != nil {
+		keyID = args["--key-id"].(string)
+	}
+
+	if args["--vendor-id"] != nil {
+		vendorID = args["--vendor-id"].(string)
+	}
+
+	date := args["--date"].(string)
+
+	logger.Debugf("authorization key path: %s", keyPath)
+	logger.Debugf("issuer id: %s", issuerID)
+	logger.Debugf("key id: %s", keyID)
+	logger.Debugf("vendor id: %s", vendorID)
+	logger.Debugf("date: %s", date)
+
+	key, err := getAuthKey(keyPath)
+	if err != nil {
+		logger.Fatal(err)
+	}
+
+	token := getToken(issuerID, keyID)
 
 	tokenString, err := token.SignedString(key)
 	if err != nil {
@@ -59,8 +96,8 @@ func main() {
 	}
 
 	output, err := requestAppstore(
-		args["--vendor-id"].(string),
-		args["--date"].(string),
+		vendorID,
+		date,
 		tokenString,
 	)
 	if err != nil {
@@ -73,7 +110,7 @@ func main() {
 func getAuthKey(path string) (interface{}, error) {
 	file, err := ioutil.ReadFile(path)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("can't read auth key: %s", err.Error())
 	}
 
 	block, _ := pem.Decode(file)
